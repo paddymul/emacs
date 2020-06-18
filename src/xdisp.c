@@ -447,6 +447,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "termchar.h"
 #include "dispextern.h"
 #include "character.h"
+#include "category.h"
 #include "buffer.h"
 #include "charset.h"
 #include "indent.h"
@@ -507,6 +508,57 @@ static Lisp_Object list_of_error;
        || (IT_BYTEPOS (*it) < ZV_BYTE					\
 	   && (*BYTE_POS_ADDR (IT_BYTEPOS (*it)) == ' '			\
 	       || *BYTE_POS_ADDR (IT_BYTEPOS (*it)) == '\t'))))
+
+/* These are the category sets we use.  */
+#define NOT_AT_EOL 60 /* < */
+#define NOT_AT_BOL 62 /* > */
+#define LINE_BREAKABLE 124 /* | */
+
+#define IT_CHAR_HAS_CATEGORY(it, cat)					\
+  ((it->what == IT_CHARACTER && CHAR_HAS_CATEGORY (it->c, cat))	\
+  || (STRINGP (it->string)						\
+      && CHAR_HAS_CATEGORY(SREF (it->string, IT_STRING_BYTEPOS (*it)), cat)) \
+  || (it->s								\
+      && CHAR_HAS_CATEGORY(it->s[IT_BYTEPOS (*it)], cat))		\
+  || (IT_BYTEPOS (*it) < ZV_BYTE					\
+      && CHAR_HAS_CATEGORY(*BYTE_POS_ADDR (IT_BYTEPOS (*it)), cat)))    \
+
+/* Return true if the current character allows wrapping before it.   */
+static bool char_can_wrap_before (struct it *it)
+{
+  /* You cannot wrap before a space or tab because
+     that way you'll have space and tab at the beginning of next
+     line.  */
+  /* In bidi context, EOL and BOL are flipped.  */
+  if (it->bidi_p)
+    return (!IT_DISPLAYING_WHITESPACE (it)
+	    && (!IT_CHAR_HAS_CATEGORY (it, NOT_AT_EOL)));
+    else
+      return (!IT_DISPLAYING_WHITESPACE (it)
+	      && (!IT_CHAR_HAS_CATEGORY (it, NOT_AT_BOL)));
+}
+
+/* Return true if the current character allows wrapping after it.   */
+static bool char_can_wrap_after (struct it *it)
+{
+  /* We used to only check for whitespace characters for wrapping,
+     hence this macro.  Obviously you can wrap after a space or
+     tab.  */
+  if (it->bidi_p)
+    return (IT_DISPLAYING_WHITESPACE (it)
+	    || (IT_CHAR_HAS_CATEGORY (it, LINE_BREAKABLE)
+		&& !IT_CHAR_HAS_CATEGORY (it, NOT_AT_BOL)));
+    else
+      return (IT_DISPLAYING_WHITESPACE (it)
+	      || (IT_CHAR_HAS_CATEGORY (it, LINE_BREAKABLE)
+		  && !IT_CHAR_HAS_CATEGORY (it, NOT_AT_EOL)));
+}
+
+#undef IT_DISPLAYING_WHITESPACE
+#undef IT_CHAR_HAS_CATEGORY
+#undef NOT_AT_BOL
+#undef NOT_AT_BOL
+#undef LINE_BREAKABLE
 
 /* If all the conditions needed to print the fill column indicator are
    met, return the (nonnegative) column number, else return a negative
@@ -9159,13 +9211,14 @@ move_it_in_display_line_to (struct it *it,
 	{
 	  if (it->line_wrap == WORD_WRAP && it->area == TEXT_AREA)
 	    {
-	      if (IT_DISPLAYING_WHITESPACE (it))
-		may_wrap = true;
-	      else if (may_wrap)
+              /* Can we wrap here? */
+	      if (may_wrap && char_can_wrap_before(it))
 		{
 		  /* We have reached a glyph that follows one or more
-		     whitespace characters.  If the position is
-		     already found, we are done.  */
+		     whitespace characters or a character that allows
+		     wrapping after it.  If this character allows
+		     wrapping before it, save this position as a
+		     wrapping point.  */
 		  if (atpos_it.sp >= 0)
 		    {
 		      RESTORE_IT (it, &atpos_it, atpos_data);
@@ -9180,8 +9233,17 @@ move_it_in_display_line_to (struct it *it,
 		    }
 		  /* Otherwise, we can wrap here.  */
 		  SAVE_IT (wrap_it, *it, wrap_data);
-		  may_wrap = false;
 		}
+	      /* This has to run after the previous block because the
+		 previous block consumes `may_wrap' and this block
+		 sets it, but the value set by this block is intended
+		 for the _next_ character/iteration.  */
+	      if (char_can_wrap_after (it))
+		/* may_wrap basically means "previous char allows
+		   wrapping after it".  */
+		may_wrap = true;
+	      else
+		may_wrap = false;
 	    }
 	}
 
@@ -9309,10 +9371,10 @@ move_it_in_display_line_to (struct it *it,
 			    {
 			      bool can_wrap = true;
 
-			      /* If we are at a whitespace character
-				 that barely fits on this screen line,
-				 but the next character is also
-				 whitespace, we cannot wrap here.  */
+			      /* If the previous character says we can
+                                 wrap after it, but the current
+                                 character says we can't wrap before
+                                 it, then we can't wrap here.  */
 			      if (it->line_wrap == WORD_WRAP
 				  && wrap_it.sp >= 0
 				  && may_wrap
@@ -9324,7 +9386,7 @@ move_it_in_display_line_to (struct it *it,
 				  SAVE_IT (tem_it, *it, tem_data);
 				  set_iterator_to_next (it, true);
 				  if (get_next_display_element (it)
-				      && IT_DISPLAYING_WHITESPACE (it))
+				      && !char_can_wrap_before(it))
 				    can_wrap = false;
 				  RESTORE_IT (it, &tem_it, tem_data);
 				}
@@ -9403,19 +9465,18 @@ move_it_in_display_line_to (struct it *it,
 		  else
 		    IT_RESET_X_ASCENT_DESCENT (it);
 
-		  /* If the screen line ends with whitespace, and we
-		     are under word-wrap, don't use wrap_it: it is no
-		     longer relevant, but we won't have an opportunity
-		     to update it, since we are done with this screen
-		     line.  */
+		  /* If the screen line ends with whitespace (or
+		     wrap-able character), and we are under word-wrap,
+		     don't use wrap_it: it is no longer relevant, but
+		     we won't have an opportunity to update it, since
+		     we are done with this screen line.  */
 		  if (may_wrap && IT_OVERFLOW_NEWLINE_INTO_FRINGE (it)
 		      /* If the character after the one which set the
-			 may_wrap flag is also whitespace, we can't
-			 wrap here, since the screen line cannot be
-			 wrapped in the middle of whitespace.
-			 Therefore, wrap_it _is_ relevant in that
-			 case.  */
-		      && !(moved_forward && IT_DISPLAYING_WHITESPACE (it)))
+			 may_wrap flag says we can't wrap before it,
+			 we can't wrap here.  Therefore, wrap_it
+			 (previously found wrap-point) _is_ relevant
+			 in that case.  */
+		      && !(moved_forward && char_can_wrap_before(it)))
 		    {
 		      /* If we've found TO_X, go back there, as we now
 			 know the last word fits on this screen line.  */
@@ -23269,9 +23330,8 @@ display_line (struct it *it, int cursor_vpos)
 
 	  if (it->line_wrap == WORD_WRAP && it->area == TEXT_AREA)
 	    {
-	      if (IT_DISPLAYING_WHITESPACE (it))
-		may_wrap = true;
-	      else if (may_wrap)
+              /* Can we wrap here? */
+	      if (may_wrap && char_can_wrap_before(it))
 		{
 		  SAVE_IT (wrap_it, *it, wrap_data);
 		  wrap_x = x;
@@ -23285,9 +23345,13 @@ display_line (struct it *it, int cursor_vpos)
 		  wrap_row_min_bpos = min_bpos;
 		  wrap_row_max_pos = max_pos;
 		  wrap_row_max_bpos = max_bpos;
-		  may_wrap = false;
 		}
-	    }
+              /* This has to run after the previous block.  */
+	      if (char_can_wrap_after (it))
+		may_wrap = true;
+              else
+                may_wrap = false;
+            }
 	}
 
       PRODUCE_GLYPHS (it);
@@ -23410,14 +23474,18 @@ display_line (struct it *it, int cursor_vpos)
 			  /* If line-wrap is on, check if a previous
 			     wrap point was found.  */
 			  if (!IT_OVERFLOW_NEWLINE_INTO_FRINGE (it)
-			      && wrap_row_used > 0
+			      && wrap_row_used > 0 /* Found.  */
 			      /* Even if there is a previous wrap
 				 point, continue the line here as
 				 usual, if (i) the previous character
-				 was a space or tab AND (ii) the
-				 current character is not.  */
-			      && (!may_wrap
-				  || IT_DISPLAYING_WHITESPACE (it)))
+				 allows wrapping after it, AND (ii)
+				 the current character allows wrapping
+				 before it.  Because this is a valid
+				 break point, we can just continue to
+				 the next line at here, there is no
+				 need to wrap early at the previous
+				 wrap point.  */
+			      && (!may_wrap || !char_can_wrap_before(it)))
 			    goto back_to_wrap;
 
 			  /* Record the maximum and minimum buffer
@@ -23445,13 +23513,16 @@ display_line (struct it *it, int cursor_vpos)
 			      /* If line-wrap is on, check if a
 				 previous wrap point was found.  */
 			      else if (wrap_row_used > 0
-				       /* Even if there is a previous wrap
-					  point, continue the line here as
-					  usual, if (i) the previous character
-					  was a space or tab AND (ii) the
-					  current character is not.  */
-				       && (!may_wrap
-					   || IT_DISPLAYING_WHITESPACE (it)))
+				       /* Even if there is a previous
+					  wrap point, continue the
+					  line here as usual, if (i)
+					  the previous character was a
+					  space or tab AND (ii) the
+					  current character is not,
+					  AND (iii) the current
+					  character allows wrapping
+					  before it.  */
+				       && (!may_wrap || !char_can_wrap_before(it)))
 				goto back_to_wrap;
 
 			    }
