@@ -514,49 +514,61 @@ static Lisp_Object list_of_error;
 #define NOT_AT_BOL 62 /* > */
 #define LINE_BREAKABLE 124 /* | */
 
-#define IT_CHAR_HAS_CATEGORY(it, cat)					\
-  ((it->what == IT_CHARACTER && CHAR_HAS_CATEGORY (it->c, cat))	\
-  || (STRINGP (it->string)						\
-      && CHAR_HAS_CATEGORY(SREF (it->string, IT_STRING_BYTEPOS (*it)), cat)) \
-  || (it->s								\
-      && CHAR_HAS_CATEGORY(it->s[IT_BYTEPOS (*it)], cat))		\
-  || (IT_BYTEPOS (*it) < ZV_BYTE					\
-      && CHAR_HAS_CATEGORY(*BYTE_POS_ADDR (IT_BYTEPOS (*it)), cat)))    \
+static bool it_char_has_category(struct it *it, int cat)
+{
+  if (it->what == IT_CHARACTER)
+    return CHAR_HAS_CATEGORY (it->c, cat);
+  else if (STRINGP (it->string))
+    return CHAR_HAS_CATEGORY (SREF (it->string,
+                                    IT_STRING_BYTEPOS (*it)), cat);
+  else if (it->s)
+    return CHAR_HAS_CATEGORY (it->s[IT_BYTEPOS (*it)], cat);
+  else if (IT_BYTEPOS (*it) < ZV_BYTE)
+    return CHAR_HAS_CATEGORY (*BYTE_POS_ADDR (IT_BYTEPOS (*it)), cat);
+  else
+    return false;
+}
 
 /* Return true if the current character allows wrapping before it.   */
 static bool char_can_wrap_before (struct it *it)
 {
-  /* You cannot wrap before a space or tab because
-     that way you'll have space and tab at the beginning of next
-     line.  */
-  /* In bidi context, EOL and BOL are flipped.  */
-  if (it->bidi_p)
-    return (!IT_DISPLAYING_WHITESPACE (it)
-	    && (!IT_CHAR_HAS_CATEGORY (it, NOT_AT_EOL)));
-    else
-      return (!IT_DISPLAYING_WHITESPACE (it)
-	      && (!IT_CHAR_HAS_CATEGORY (it, NOT_AT_BOL)));
+  if (!Vcjk_word_wrap)
+    return !IT_DISPLAYING_WHITESPACE (it);
+
+  /* For CJK (LTR) text in RTL paragraph, EOL and BOL are flipped.  */
+  int not_at_bol;
+  if (it->glyph_row && it->glyph_row->reversed_p)
+    not_at_bol = NOT_AT_EOL;
+  else
+    not_at_bol = NOT_AT_BOL;
+  /* You cannot wrap before a space or tab because that way you'll
+     have space and tab at the beginning of next line.  */
+  return (!IT_DISPLAYING_WHITESPACE (it)
+          // Can be at BOL.
+          && !it_char_has_category (it, not_at_bol));
 }
 
 /* Return true if the current character allows wrapping after it.   */
 static bool char_can_wrap_after (struct it *it)
 {
-  /* We used to only check for whitespace characters for wrapping,
-     hence this macro.  Obviously you can wrap after a space or
-     tab.  */
-  if (it->bidi_p)
-    return (IT_DISPLAYING_WHITESPACE (it)
-	    || (IT_CHAR_HAS_CATEGORY (it, LINE_BREAKABLE)
-		&& !IT_CHAR_HAS_CATEGORY (it, NOT_AT_BOL)));
-    else
-      return (IT_DISPLAYING_WHITESPACE (it)
-	      || (IT_CHAR_HAS_CATEGORY (it, LINE_BREAKABLE)
-		  && !IT_CHAR_HAS_CATEGORY (it, NOT_AT_EOL)));
+  if (!Vcjk_word_wrap)
+    return IT_DISPLAYING_WHITESPACE (it);
+
+  /* For CJK (LTR) text in RTL paragraph, EOL and BOL are flipped.  */
+  int not_at_eol;
+  if (it->glyph_row && it->glyph_row->reversed_p)
+    not_at_eol = NOT_AT_BOL;
+  else
+    not_at_eol = NOT_AT_EOL;
+
+  return (IT_DISPLAYING_WHITESPACE (it)
+          // Can break after && can be at EOL.
+            || (it_char_has_category (it, LINE_BREAKABLE)
+                && !it_char_has_category (it, not_at_eol)));
 }
 
 #undef IT_DISPLAYING_WHITESPACE
-#undef IT_CHAR_HAS_CATEGORY
-#undef NOT_AT_BOL
+#undef NOT_AT_EOL
 #undef NOT_AT_BOL
 #undef LINE_BREAKABLE
 
@@ -9212,7 +9224,7 @@ move_it_in_display_line_to (struct it *it,
 	  if (it->line_wrap == WORD_WRAP && it->area == TEXT_AREA)
 	    {
               /* Can we wrap here? */
-	      if (may_wrap && char_can_wrap_before(it))
+	      if (may_wrap && char_can_wrap_before (it))
 		{
 		  /* We have reached a glyph that follows one or more
 		     whitespace characters or a character that allows
@@ -9386,7 +9398,7 @@ move_it_in_display_line_to (struct it *it,
 				  SAVE_IT (tem_it, *it, tem_data);
 				  set_iterator_to_next (it, true);
 				  if (get_next_display_element (it)
-				      && !char_can_wrap_before(it))
+				      && !char_can_wrap_before (it))
 				    can_wrap = false;
 				  RESTORE_IT (it, &tem_it, tem_data);
 				}
@@ -9476,7 +9488,7 @@ move_it_in_display_line_to (struct it *it,
 			 we can't wrap here.  Therefore, wrap_it
 			 (previously found wrap-point) _is_ relevant
 			 in that case.  */
-		      && !(moved_forward && char_can_wrap_before(it)))
+		      && !(moved_forward && char_can_wrap_before (it)))
 		    {
 		      /* If we've found TO_X, go back there, as we now
 			 know the last word fits on this screen line.  */
@@ -23331,7 +23343,7 @@ display_line (struct it *it, int cursor_vpos)
 	  if (it->line_wrap == WORD_WRAP && it->area == TEXT_AREA)
 	    {
               /* Can we wrap here? */
-	      if (may_wrap && char_can_wrap_before(it))
+	      if (may_wrap && char_can_wrap_before (it))
 		{
 		  SAVE_IT (wrap_it, *it, wrap_data);
 		  wrap_x = x;
@@ -23485,7 +23497,7 @@ display_line (struct it *it, int cursor_vpos)
 				 the next line at here, there is no
 				 need to wrap early at the previous
 				 wrap point.  */
-			      && (!may_wrap || !char_can_wrap_before(it)))
+			      && (!may_wrap || !char_can_wrap_before (it)))
 			    goto back_to_wrap;
 
 			  /* Record the maximum and minimum buffer
@@ -23522,7 +23534,7 @@ display_line (struct it *it, int cursor_vpos)
 					  AND (iii) the current
 					  character allows wrapping
 					  before it.  */
-				       && (!may_wrap || !char_can_wrap_before(it)))
+				       && (!may_wrap || !char_can_wrap_before (it)))
 				goto back_to_wrap;
 
 			    }
@@ -34652,6 +34664,14 @@ A value of nil means to respect the value of `truncate-lines'.
 
 If `word-wrap' is enabled, you might want to reduce this.  */);
   Vtruncate_partial_width_windows = make_fixnum (50);
+
+  DEFVAR_BOOL("cjk-word-wrap", Vcjk_word_wrap,
+    doc: /*  Non-nil means wrap after CJK chracters.
+Normally when word-wrappping is on, Emacs only breaks line after
+whitespace chracters.  When this option is turned on, Emacs also
+breaks line after CJK characters.  If kinsoku.el is loaded, Emacs also
+respects kinsoku when breaking lines.  */);
+  Vcjk_word_wrap = false;
 
   DEFVAR_LISP ("line-number-display-limit", Vline_number_display_limit,
     doc: /* Maximum buffer size for which line number should be displayed.
