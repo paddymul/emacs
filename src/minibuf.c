@@ -496,7 +496,7 @@ confirm the aborting of the current minibuffer and all contained ones.  */)
 	}
     }
   else
-    Fthrow (Qexit, Qt);
+    CALLN (Ffuncall, intern ("minibuffer-quit-recursive-edit"));
   return Qnil;
 }
 
@@ -1210,7 +1210,7 @@ read_minibuf_unwind (void)
 		     WINDOW_FRAME (XWINDOW (minibuf_window))))
 	    Fset_frame_selected_window (selected_frame, prev, Qnil);
 	}
-      else
+      else if (WINDOW_LIVE_P (calling_window))
 	Fset_frame_selected_window (calling_frame, calling_window, Qnil);
     }
 

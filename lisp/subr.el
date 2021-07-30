@@ -31,7 +31,8 @@
   "Tell the byte-compiler that function FN is defined, in FILE.
 The FILE argument is not used by the byte-compiler, but by the
 `check-declare' package, which checks that FILE contains a
-definition for FN.
+definition for FN.  (FILE can be nil, and that disables this
+check.)
 
 FILE can be either a Lisp file (in which case the \".el\"
 extension is optional), or a C file.  C files are expanded
@@ -3850,6 +3851,14 @@ Before insertion, process text properties according to
     (insert-buffer-substring buffer start end)
     (remove-yank-excluded-properties opoint (point))))
 
+(defun insert-into-buffer (buffer &optional start end)
+  "Insert the contents of the current buffer into BUFFER.
+If START/END, only insert that region from the current buffer.
+Point in BUFFER will be placed after the inserted text."
+  (let ((current (current-buffer)))
+    (with-current-buffer buffer
+      (insert-buffer-substring current start end))))
+
 (defun yank-handle-font-lock-face-property (face start end)
   "If `font-lock-defaults' is nil, apply FACE as a `face' property.
 START and END denote the start and end of the text to act on.
@@ -6302,5 +6311,13 @@ of fill.el (for example `fill-region')."
   "Format a documentation string out of STRING and OBJECTS.
 This is intended for internal use only."
   (internal--fill-string-single-line (apply #'format string objects)))
+
+(defun json-available-p ()
+  "Return non-nil if Emacs has libjansson support."
+  (and (fboundp 'json-serialize)
+       (condition-case nil
+           (json-serialize t)
+         (:success t)
+         (json-unavailable nil))))
 
 ;;; subr.el ends here

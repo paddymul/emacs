@@ -647,7 +647,6 @@ typedef id instancetype;
   NSBitmapImageRep *bmRep; /* used for accessing pixel data */
   unsigned char *pixmapData[5]; /* shortcut to access pixel data */
   NSColor *stippleMask;
-  unsigned long xbm_fg;
 @public
   NSAffineTransform *transform;
   BOOL smoothing;
@@ -657,7 +656,6 @@ typedef id instancetype;
 - (instancetype)initFromXBM: (unsigned char *)bits width: (int)w height: (int)h
                          fg: (unsigned long)fg bg: (unsigned long)bg
                reverseBytes: (BOOL)reverse;
-- (instancetype)setXBMColor: (NSColor *)color;
 - (instancetype)initForXPMWithDepth: (int)depth width: (int)width height: (int)height;
 - (void)setPixmapData;
 - (unsigned long)getPixelAtX: (int)x Y: (int)y;
@@ -1190,9 +1188,7 @@ extern void ns_run_ascript (void);
 #define NSAPP_DATA2_RUNFILEDIALOG 11
 extern void ns_run_file_dialog (void);
 
-extern const char *ns_etc_directory (void);
-extern const char *ns_exec_path (void);
-extern const char *ns_load_path (void);
+extern const char *ns_relocate (const char *epath);
 extern void syms_of_nsterm (void);
 extern void syms_of_nsfns (void);
 extern void syms_of_nsmenu (void);

@@ -2195,8 +2195,24 @@ Downloads and installs required packages as needed."
             ((derived-mode-p 'tar-mode)
              (package-tar-file-info))
             (t
-             (save-excursion
-              (package-buffer-info)))))
+             ;; Package headers should be parsed from decoded text
+             ;; (see Bug#48137) where possible.
+             (if (and (eq buffer-file-coding-system 'no-conversion)
+                      buffer-file-name)
+                 (let* ((package-buffer (current-buffer))
+                        (decoding-system
+                         (car (find-operation-coding-system
+                               'insert-file-contents
+                               (cons buffer-file-name
+                                     package-buffer)))))
+                   (with-temp-buffer
+                     (insert-buffer-substring package-buffer)
+                     (decode-coding-region (point-min) (point-max)
+                                           decoding-system)
+                     (package-buffer-info)))
+
+               (save-excursion
+                 (package-buffer-info))))))
          (name (package-desc-name pkg-desc)))
     ;; Download and install the dependencies.
     (let* ((requires (package-desc-reqs pkg-desc))
@@ -2222,6 +2238,7 @@ directory."
           (setq default-directory file)
           (dired-mode))
       (insert-file-contents-literally file)
+      (set-visited-file-name file)
       (when (string-match "\\.tar\\'" file) (tar-mode)))
     (package-install-from-buffer)))
 
@@ -3954,9 +3971,14 @@ packages."
   (package--ensure-package-menu-mode)
   (if (or (not status) (string-empty-p status))
       (package-menu--generate t t)
-    (package-menu--filter-by (lambda (pkg-desc)
-                        (string-match-p status (package-desc-status pkg-desc)))
-                      (format "status:%s" status))))
+    (let ((status-list
+           (if (listp status)
+               status
+             (split-string status ","))))
+      (package-menu--filter-by
+       (lambda (pkg-desc)
+         (member (package-desc-status pkg-desc) status-list))
+       (format "status:%s" (string-join status-list ","))))))
 
 (defun package-menu-filter-by-version (version predicate)
   "Filter the \"*Packages*\" buffer by VERSION and PREDICATE.

@@ -332,15 +332,11 @@ Menu of mode operations in the mode line.")
 
 (defun bindings--menu-item-string (item)
   "Return the menu-item string for ITEM, or nil if not a menu-item."
-  (cond
-   ((not (consp item)) nil)             ; Not a menu-item.
-   ((eq 'menu-item (car item))
-    (eval (cadr item)))
-   ((stringp (car item))
-    (car item))
-   (t nil)))                            ; Not a menu-item either.
+  (pcase item
+    (`(menu-item ,name . ,_) (eval name t))
+    (`(,(and (pred stringp) name) . ,_) name)))
 
-(defun bindings--sort-keymap (map)
+(defun bindings--sort-menu-keymap (map)
   "Sort the bindings in MAP in alphabetical order by menu-item string.
 The order of bindings in a keymap matters only when it is used as
 a menu, so this function is not useful for non-menu keymaps."
@@ -367,8 +363,8 @@ a menu, so this function is not useful for non-menu keymaps."
         :filter ,(lambda (_) (mouse-menu-major-mode-map))))
     (define-key map [mode-line mouse-2] 'describe-mode)
     (bindings--define-key map [mode-line down-mouse-3]
-      `(menu-item "Menu Bar" ,mode-line-mode-menu
-        :filter bindings--sort-keymap))
+      `(menu-item "Minor Modes" ,mode-line-mode-menu
+        :filter bindings--sort-menu-keymap))
     map) "\
 Keymap to display on major mode.")
 
@@ -376,7 +372,7 @@ Keymap to display on major mode.")
   (let ((map (make-sparse-keymap))
         (mode-menu-binding
          `(menu-item "Menu Bar" ,mode-line-mode-menu
-           :filter bindings--sort-keymap)))
+           :filter bindings--sort-menu-keymap)))
     (define-key map [mode-line down-mouse-1] 'mouse-minor-mode-menu)
     (define-key map [mode-line mouse-2] 'mode-line-minor-mode-help)
     (define-key map [mode-line down-mouse-3] mode-menu-binding)
@@ -467,7 +463,9 @@ displayed in `mode-line-position', a component of the default
 (defcustom mode-line-position-line-format '(" L%l")
   "Format used to display line numbers in the mode line.
 This is used when `line-number-mode' is switched on.  The \"%l\"
-format spec will be replaced by the line number."
+format spec will be replaced by the line number.
+
+Also see `mode-line-position-column-line-format'."
   :type '(list string)
   :version "28.1"
   :group 'mode-line)
@@ -475,9 +473,10 @@ format spec will be replaced by the line number."
 (defcustom mode-line-position-column-format '(" C%c")
   "Format used to display column numbers in the mode line.
 This is used when `column-number-mode' is switched on.  The
-\"%c\" format spec will be replaced by the column number, which
-is zero-based if `column-number-indicator-zero-based' is non-nil,
-and one-based if `column-number-indicator-zero-based' is nil."
+\"%c\" format spec is replaced by the zero-based column number,
+and \"%C\" is replaced by the one-based column number.
+
+Also see `mode-line-position-column-line-format'."
   :type '(list string)
   :version "28.1"
   :group 'mode-line)
@@ -584,7 +583,7 @@ Major modes that edit things other than ordinary files may change this
 (put 'mode-line-buffer-identification 'risky-local-variable t)
 
 (defvar mode-line-misc-info
-  '((global-mode-string ("" global-mode-string " ")))
+  '((global-mode-string ("" global-mode-string)))
   "Mode line construct for miscellaneous information.
 By default, this shows the information specified by `global-mode-string'.")
 (put 'mode-line-misc-info 'risky-local-variable t)
