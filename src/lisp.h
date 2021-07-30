@@ -1070,6 +1070,8 @@ enum pvec_type
   PVEC_CONDVAR,
   PVEC_MODULE_FUNCTION,
   PVEC_NATIVE_COMP_UNIT,
+  PVEC_TS_PARSER,
+  PVEC_TS_NODE,
 
   /* These should be last, for internal_equal and sxhash_obj.  */
   PVEC_COMPILED,
@@ -5124,6 +5126,11 @@ maybe_gc (void)
   if (consing_until_gc < 0)
     maybe_garbage_collect ();
 }
+
+/* Simplified version of 'define-error' that works with pure
+   objects.  */
+void
+define_error (Lisp_Object name, const char *message, Lisp_Object parent);
 
 INLINE_HEADER_END
 

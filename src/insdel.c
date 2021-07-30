@@ -31,6 +31,10 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "region-cache.h"
 #include "pdumper.h"
 
+#ifdef HAVE_TREE_SITTER
+#include "tree_sitter.h"
+#endif
+
 static void insert_from_string_1 (Lisp_Object, ptrdiff_t, ptrdiff_t, ptrdiff_t,
 				  ptrdiff_t, bool, bool);
 static void insert_from_buffer_1 (struct buffer *, ptrdiff_t, ptrdiff_t, bool);
@@ -943,6 +947,10 @@ insert_1_both (const char *string,
   adjust_point (nchars, nbytes);
 
   check_markers ();
+
+#ifdef HAVE_TREE_SITTER
+      ts_record_change (PT_BYTE - nbytes, PT_BYTE - nbytes, PT_BYTE);
+#endif
 }
 
 /* Insert the part of the text of STRING, a Lisp object assumed to be
@@ -1074,6 +1082,10 @@ insert_from_string_1 (Lisp_Object string, ptrdiff_t pos, ptrdiff_t pos_byte,
   adjust_point (nchars, outgoing_nbytes);
 
   check_markers ();
+
+#ifdef HAVE_TREE_SITTER
+  ts_record_change (PT_BYTE - nbytes, PT_BYTE - nbytes, PT_BYTE);
+#endif
 }
 
 /* Insert a sequence of NCHARS chars which occupy NBYTES bytes
@@ -1141,6 +1153,10 @@ insert_from_gap (ptrdiff_t nchars, ptrdiff_t nbytes, bool text_at_gap_tail)
     adjust_point (nchars, nbytes);
 
   check_markers ();
+
+#ifdef HAVE_TREE_SITTER
+  ts_record_change (PT_BYTE - nbytes, PT_BYTE - nbytes, nbytes);
+#endif
 }
 
 /* Insert text from BUF, NCHARS characters starting at CHARPOS, into the
@@ -1288,6 +1304,11 @@ insert_from_buffer_1 (struct buffer *buf,
   graft_intervals_into_buffer (intervals, PT, nchars, current_buffer, inherit);
 
   adjust_point (nchars, outgoing_nbytes);
+
+#ifdef HAVE_TREE_SITTER
+  ts_record_change (PT_BYTE - outgoing_nbytes,
+		    PT_BYTE - outgoing_nbytes, PT_BYTE);
+#endif
 }
 
 /* Record undo information and adjust markers and position keepers for
@@ -1552,6 +1573,11 @@ replace_range (ptrdiff_t from, ptrdiff_t to, Lisp_Object new,
   if (adjust_match_data)
     update_search_regs (from, to, from + SCHARS (new));
 
+
+#ifdef HAVE_TREE_SITTER
+  ts_record_change (from_byte, to_byte, GPT_BYTE);
+#endif
+
   signal_after_change (from, nchars_del, GPT - from);
   update_compositions (from, GPT, CHECK_BORDER);
 }
@@ -1566,7 +1592,11 @@ replace_range (ptrdiff_t from, ptrdiff_t to, Lisp_Object new,
    If MARKERS, relocate markers.
 
    Unlike most functions at this level, never call
-   prepare_to_modify_buffer and never call signal_after_change.  */
+   prepare_to_modify_buffer and never call signal_after_change.
+   Because this function is called in a loop, one character at a time.
+   The caller of 'replace_range_2' calls these hooks for the entire
+   region once.  Apart from signal_after_change, any caller of this
+   function should also call ts_record_change.  */
 
 void
 replace_range_2 (ptrdiff_t from, ptrdiff_t from_byte,
@@ -1888,6 +1918,10 @@ del_range_2 (ptrdiff_t from, ptrdiff_t from_byte,
   check_markers ();
 
   evaporate_overlays (from);
+
+#ifdef HAVE_TREE_SITTER
+  ts_record_change (from_byte, to_byte, from_byte);
+#endif
 
   return deletion;
 }
